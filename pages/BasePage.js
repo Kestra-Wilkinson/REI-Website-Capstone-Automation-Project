@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 class BasePage {
   constructor(driver) {
     this.driver = driver;
@@ -7,12 +10,24 @@ class BasePage {
     await this.driver.get(url);
   }
 
-  async waitUntilVisible(locator, timeout = 30000) {
+  async waitUntilVisible(locator, timeout = 30000, retries = 3) {
     const { until } = require('selenium-webdriver');
-    await this.driver.wait(until.elementLocated(locator), timeout);
-    const element = await this.driver.findElement(locator);
-    await this.driver.wait(until.elementIsVisible(element), timeout);
-    return element;
+    let lastError;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        await this.driver.wait(until.elementLocated(locator), timeout);
+        const element = await this.driver.findElement(locator);
+        await this.driver.wait(until.elementIsVisible(element), timeout);
+        return element;
+      } catch (err) {
+        lastError = err;
+        console.warn(`⏳ Attempt ${attempt} failed to find element. Retrying...`);
+        await this.driver.sleep(1000);
+      }
+    }
+    console.error("❌ Element not found after retries. Taking screenshot...");
+    await this.takeScreenshot('element_not_found');
+    throw lastError;
   }
 
   async click(locator) {
@@ -25,16 +40,38 @@ class BasePage {
     return element.getText();
   }
 
-  async dismissPopupIfPresent(selector) {
+  async takeScreenshot(label = 'error') {
+    const image = await this.driver.takeScreenshot();
+    const file = path.join(__dirname, `../screenshots/${label}-${Date.now()}.png`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, image, 'base64');
+    console.log(`📸 Screenshot saved: ${file}`);
+  }
+
+  async dismissPopupIfPresent() {
     try {
-      const { By, until } = require('selenium-webdriver');
-      const popup = await this.driver.wait(until.elementLocated(By.css(selector)), 5000);
-      const closeButton = await popup.findElement(By.css('button, .close, .dismiss, .x-close'));
-      await this.driver.executeScript("arguments[0].scrollIntoView(true);", closeButton);
-      await closeButton.click();
-      console.log(`🧹 Popup dismissed using selector: ${selector}`);
+      const { By } = require('selenium-webdriver');
+      const popupSelectors = [
+        '[data-testid="modal"]',
+        '.bx-close-button',
+        '.c-button-icon',
+        '#bx-element-modal',
+        '[aria-label="Close"]',
+        '.opt-out-button'
+      ];
+
+      for (const selector of popupSelectors) {
+        const elements = await this.driver.findElements(By.css(selector));
+        if (elements.length > 0) {
+          const button = elements[0];
+          await this.driver.executeScript("arguments[0].scrollIntoView(true);", button);
+          await button.click();
+          console.log(`🧹 Dismissed popup with: ${selector}`);
+          await this.driver.sleep(1000);
+        }
+      }
     } catch (err) {
-      console.log(`✅ No popup with selector ${selector} appeared (or already dismissed).`);
+      console.log("✅ No modal or popup to dismiss.");
     }
   }
 }
