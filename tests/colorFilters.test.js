@@ -1,62 +1,66 @@
 const getDriver = require('./setup');
-const HomePage = require('../pages/HomePage');
-const SnowClothingPage = require('../pages/SnowClothingPage');
+const BasePage = require('../pages/BasePage');
+const assert = require('assert');
 
 describe('Color Filter SKU Validation', function () {
-  this.timeout(20000);
-  let driver, home, snow;
+  this.timeout(60000);
+  let driver, page;
 
-  before(function () {
+  before(() => {
     console.log("🚀 Launching browser for color filter test...");
     driver = getDriver();
-    home = new HomePage(driver);
-    snow = new SnowClothingPage(driver);
+    page = new BasePage(driver);
   });
 
-  it('Validates all color SKUs match unfiltered list', async function () {
-    console.log("🌐 Navigating to Snow Clothing...");
-    await home.visit('https://www.rei.com/');
-    await home.dismissPopupIfPresent('[data-testid="modal"], .bx-close-button, .c-button-icon');
-    await home.hoverMainMenu('Snow');
-    await home.clickSubMenu('Snow Clothing');
+  it('🎨 Checks SKU consistency across color filters', async function () {
+    await page.visit('https://www.rei.com/');
+    await page.dismissPopupIfPresent('[data-testid="modal"], .bx-close-button, .c-button-icon');
 
-    console.log("🔧 Applying filters: Kids, 4 & up, Snowsports, $20.00 to $49.99...");
-    await snow.applyFilter("Kids");
-    await snow.applyFilter("4 & up");
-    await snow.applyFilter("Snowsports");
-    await snow.applyFilter("$20.00 to $49.99");
+    const snowMenu = await page.waitUntilVisible({ css: 'a[data-testid="gnav-header-link-Snow"]' });
+    await driver.actions({ async: true }).move({ origin: snowMenu }).perform();
+    const snowClothing = await page.waitUntilVisible({ xpath: "//a[text()='Snow Clothing']" });
+    await snowClothing.click();
 
-    const originalSkus = new Set(await snow.getAllSkus());
-    console.log(`🧾 SKUs with all filters (no color): ${originalSkus.size}`);
+    const applyFilters = async () => {
+      for (let label of ["Kids", "4 & up", "Snowsports", "$20.00 to $49.99"]) {
+        const filter = await page.waitUntilVisible({ xpath: `//label[contains(., "${label}")]//input` });
+        await driver.executeScript("arguments[0].click();", filter);
+      }
+    };
 
-    const colorLabels = await snow.getColorLabels();
-    const allColorSkus = new Set();
+    await applyFilters();
+    const allItems = await driver.findElements({ css: '[data-sku]' });
+    const originalSkus = new Set(await Promise.all(allItems.map(i => i.getAttribute("data-sku"))));
+    console.log(`🧾 Found ${originalSkus.size} unique SKUs with filters, before color applied.`);
 
-    for (let label of colorLabels) {
-      const labelText = await label.getText();
-      console.log(`🎨 Applying color filter: ${labelText}`);
+    const colorLabels = await driver.findElements({ xpath: '//fieldset[legend[contains(text(), "Color")]]//label' });
+    const aggregatedSkus = new Set();
 
-      await home.visit('https://www.rei.com/');
-      await home.dismissPopupIfPresent('[data-testid="modal"], .bx-close-button, .c-button-icon');
-      await home.hoverMainMenu('Snow');
-      await home.clickSubMenu('Snow Clothing');
-      await snow.applyFilter("Kids");
-      await snow.applyFilter("4 & up");
-      await snow.applyFilter("Snowsports");
-      await snow.applyFilter("$20.00 to $49.99");
-      await snow.clickColorByLabelText(labelText);
-
-      const skus = await snow.getAllSkus();
-      console.log(`   📦 SKUs found for ${labelText}: ${skus.length}`);
-      skus.forEach(sku => allColorSkus.add(sku));
+    for (const label of colorLabels) {
+      const text = await label.getText();
+      console.log(`🎨 Applying color: ${text}`);
+      await page.visit('https://www.rei.com/');
+      await page.dismissPopupIfPresent('[data-testid="modal"], .bx-close-button, .c-button-icon');
+      const snowMenu = await page.waitUntilVisible({ css: 'a[data-testid="gnav-header-link-Snow"]' });
+      await driver.actions({ async: true }).move({ origin: snowMenu }).perform();
+      const snowClothing = await page.waitUntilVisible({ xpath: "//a[text()='Snow Clothing']" });
+      await snowClothing.click();
+      await applyFilters();
+      const colorInput = await page.waitUntilVisible({ xpath: `//label[contains(., "${text}")]//input` });
+      await driver.executeScript("arguments[0].click();", colorInput);
+      const skus = await driver.findElements({ css: '[data-sku]' });
+      for (const s of skus) {
+        const val = await s.getAttribute("data-sku");
+        if (val) aggregatedSkus.add(val);
+      }
     }
 
-    console.log(`🔁 Comparing total SKUs (${originalSkus.size}) vs color-aggregated (${allColorSkus.size})`);
-    const diff = [...originalSkus].filter(sku => !allColorSkus.has(sku));
-    if (diff.length > 0) {
-      throw new Error(`❌ Missing SKUs: ${diff.join(', ')}`);
+    const missing = [...originalSkus].filter(sku => !aggregatedSkus.has(sku));
+    console.log(`🔁 Total deduped SKUs: ${aggregatedSkus.size}`);
+    if (missing.length > 0) {
+      throw new Error(`❌ Missing SKUs after filtering: ${missing.join(', ')}`);
     } else {
-      console.log("✅ All color combinations accounted for.");
+      console.log("✅ All original SKUs found across colors.");
     }
   });
 

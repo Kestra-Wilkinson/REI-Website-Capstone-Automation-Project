@@ -1,10 +1,10 @@
 const getDriver = require('./setup');
-const NavigationPage = require('../pages/NavigationPage');
+const BasePage = require('../pages/BasePage');
 const assert = require('assert');
 
 describe('Navigation Menu Validation', function () {
-  this.timeout(15000);
-  let driver, nav;
+  this.timeout(60000);
+  let driver, page;
 
   const expectedSubmenus = [
     "Hiking Backpacks",
@@ -18,20 +18,22 @@ describe('Navigation Menu Validation', function () {
   before(async function () {
     console.log("🚀 Launching browser for navigation test...");
     driver = getDriver();
-    nav = new NavigationPage(driver);
+    page = new BasePage(driver);
   });
 
-  it('validates Hiking submenu under Camp & Hike', async function () {
-    console.log("🧭 Navigating to REI homepage...");
-    await nav.visit('https://www.rei.com/');
-    await nav.dismissPopupIfPresent('[data-testid="modal"], .bx-close-button, .c-button-icon');
-    console.log("📁 Hovering over Camp & Hike > Hiking...");
-    await nav.hoverMenu('Camp & Hike');
-    const submenuItems = await nav.getSubmenuItems();
+  it('🧭 Validates Hiking submenu under Camp & Hike', async function () {
+    await page.visit('https://www.rei.com/');
+    await page.dismissPopupIfPresent('[data-testid="modal"], .bx-close-button, .c-button-icon');
+    const actions = driver.actions({ async: true });
+    const campHike = await page.waitUntilVisible({ css: 'a[data-testid="gnav-header-link-Camp & Hike"]' });
+    await actions.move({ origin: campHike }).perform();
 
-    expectedSubmenus.forEach(expected => {
-      console.log(`✅ Checking submenu: ${expected}`);
-      assert(submenuItems.includes(expected), `Missing submenu: ${expected}`);
+    const submenuItems = await driver.findElements({ css: 'a[data-analytics-id*="Camp & Hike > Hiking"]' });
+    const texts = await Promise.all(submenuItems.map(el => el.getText()));
+    console.log(`📋 Found submenu items: ${texts.join(', ')}`);
+
+    expectedSubmenus.forEach(item => {
+      assert(texts.includes(item), `Missing submenu: ${item}`);
     });
   });
 

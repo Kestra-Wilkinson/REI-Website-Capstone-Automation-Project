@@ -7,9 +7,12 @@ class BasePage {
     await this.driver.get(url);
   }
 
-  async waitUntilVisible(locator, timeout = 20000) {
+  async waitUntilVisible(locator, timeout = 30000) {
     const { until } = require('selenium-webdriver');
-    return this.driver.wait(until.elementLocated(locator), timeout);
+    await this.driver.wait(until.elementLocated(locator), timeout);
+    const element = await this.driver.findElement(locator);
+    await this.driver.wait(until.elementIsVisible(element), timeout);
+    return element;
   }
 
   async click(locator) {
